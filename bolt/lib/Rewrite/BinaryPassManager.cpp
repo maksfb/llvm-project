@@ -454,6 +454,8 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
   // splitting.
   Manager.registerPass(std::make_unique<SplitFunctions>(PrintSplit));
 
+  Manager.registerPass(std::make_unique<ColdTrampolines>(PrintReordered));
+
   // Print final dyno stats right while CFG and instruction analysis are intact.
   Manager.registerPass(std::make_unique<DynoStatsPrintPass>(
                            "after all optimizations before SCTC and FOP"),

@@ -1713,6 +1713,121 @@ Error InstructionLowering::runOnFunctions(BinaryContext &BC) {
   return Error::success();
 }
 
+Error ColdTrampolines::runOnFunctions(BinaryContext &BC) {
+
+  uint64_t NumIslands = 0;
+  uint64_t NumReusedIslands = 0;
+
+  // We can insert branch islands in-between clusters. Then clusters can jump
+  // in both directions, although forward jumps are the ones treated as
+  // non-taken by the hardware (?).
+  for (BinaryFunction &BF : llvm::make_second_range(BC.getBinaryFunctions())) {
+    if (!BC.shouldEmit(BF))
+      continue;
+
+    if (!BF.isSplit())
+      continue;
+
+    const auto [HotSize, ColdSize] =
+        BC.calculateEmittedSize(BF, /*FixBranches*/ true);
+
+    // List of basic blocks in the main fragment that jump to cold code
+    // together with the distance of the jump instruction from the start of
+    // the function.
+    std::vector<std::pair<uint64_t, BinaryBasicBlock *>> Candidates;
+    uint64_t Distance = 0;
+
+    // Cold BB -> Island
+    std::map<BinaryBasicBlock *, BinaryBasicBlock *> IslandMap;
+
+    for (BinaryBasicBlock *BB : BF.getLayout().getMainFragment()) {
+      Distance += BC.computeCodeSize(BB->begin(), BB->end());
+
+      const BinaryBasicBlock *const NextBB =
+          BF.getLayout().getBasicBlockAfter(BB, /*IgnoreSplits*/ false);
+
+      // Check for BB that doesn't fall through or the last BB in the fragment.
+      if (!NextBB || BB->getFallthrough() != NextBB) {
+      //if (!NextBB) {
+      //if (NextBB && BB->getFallthrough() != NextBB) {
+
+        // Always place islands at the end of hot code for small functions.
+        if (HotSize < 128 && NextBB)
+          continue;
+
+        std::vector<std::unique_ptr<BinaryBasicBlock>> Islands;
+
+        // Cold BB -> Island
+        //std::map<BinaryBasicBlock *, BinaryBasicBlock *> IslandMap;
+
+        // Filter out
+
+        // Try to insert islands for candidates.
+        for (auto &Info : Candidates) {
+          if (Distance - Info.first > 128)
+            continue;
+
+          // Insert a basic block and make it a new successor.
+          BinaryBasicBlock *TakenSuccBB =
+              Info.second->getConditionalSuccessor(true);
+
+          if (0)
+            dbgs() << "inserting an island for successor "
+                   << TakenSuccBB->getName() << " in " << Info.second->getName()
+                   << " after " << BB->getName() << " in " << BF << '\n';
+
+          // Check if we already have an island and use it.
+          if (IslandMap.count(TakenSuccBB)) {
+            Info.second->replaceSuccessor(TakenSuccBB, IslandMap[TakenSuccBB]);
+            ++NumReusedIslands;
+            continue;
+          }
+
+          Islands.emplace_back(BF.createBasicBlock());
+          BinaryBasicBlock &NewBB = *Islands.back();
+          NewBB.addSuccessor(TakenSuccBB);
+
+          Info.second->replaceSuccessor(TakenSuccBB, &NewBB);
+
+          ++NumIslands;
+
+          IslandMap[TakenSuccBB] = &NewBB;
+        }
+
+        BF.insertBasicBlocks(BB, std::move(Islands), true, true, false);
+        Candidates.clear();
+
+        BF.fixBranches();
+      }
+
+      if (BB->succ_size() != 2)
+        continue;
+
+      if (BB->hasJumpTable())
+        continue;
+
+      BinaryBasicBlock *TakenSuccBB = BB->getConditionalSuccessor(true);
+
+      // Assuming --split-all-cold ?
+      if (TakenSuccBB->getFragmentNum() != FragmentNum::cold())
+        continue;
+
+      if (IslandMap.count(TakenSuccBB)) {
+        BB->replaceSuccessor(TakenSuccBB, IslandMap[TakenSuccBB]);
+        ++NumReusedIslands;
+        continue;
+      }
+
+      Candidates.push_back({Distance - 5, BB});
+    }
+  }
+
+  BC.outs() << "BOLT-INFO: " << NumIslands << " islands added\n";
+  BC.outs() << "BOLT-INFO: " << NumReusedIslands << " islands were reused\n";
+
+  return Error::success();
+}
+
 Error StripRepRet::runOnFunctions(BinaryContext &BC) {
   if (!BC.isX86())
     return Error::success();

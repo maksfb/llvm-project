@@ -440,6 +440,16 @@ public:
   Error runOnFunctions(BinaryContext &BC) override;
 };
 
+class ColdTrampolines : public BinaryFunctionPass {
+public:
+  explicit ColdTrampolines(const cl::opt<bool> &PrintPass)
+      : BinaryFunctionPass(PrintPass) {}
+
+  const char *getName() const override { return "cold-trampolines"; }
+
+  Error runOnFunctions(BinaryContext &BC) override;
+};
+
 /// Pass for stripping 'repz' from 'repz retq' sequence of instructions.
 class StripRepRet : public BinaryFunctionPass {
 public:
