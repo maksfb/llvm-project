@@ -110,11 +110,15 @@ struct DebugLocationEntry {
   uint64_t LowPC;
   uint64_t HighPC;
   SmallVector<uint8_t, 4> Expr;
+  bool IsDefault = false;
 };
 
 inline raw_ostream &operator<<(raw_ostream &OS,
                                const DebugLocationEntry &Entry) {
-  OS << formatv("[{0:x}, {1:x}) : [", Entry.LowPC, Entry.HighPC);
+  if (Entry.IsDefault)
+    OS << "<default> : [";
+  else
+    OS << formatv("[{0:x}, {1:x}) : [", Entry.LowPC, Entry.HighPC);
   const char *Sep = "";
   for (unsigned Byte : Entry.Expr) {
     OS << Sep << Byte;

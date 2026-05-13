@@ -584,6 +584,8 @@ void DebugLocWriter::addList(DIEBuilder &DIEBldr, DIE &Die, DIEValue &AttrInfo,
   const uint32_t EntryOffset = LocSectionOffset;
 
   for (const DebugLocationEntry &Entry : LocList) {
+    if (Entry.IsDefault)
+      continue;
     support::endian::write(*LocStream, static_cast<uint64_t>(Entry.LowPC),
                            llvm::endianness::little);
     support::endian::write(*LocStream, static_cast<uint64_t>(Entry.HighPC),
@@ -636,6 +638,8 @@ static void writeLegacyLocList(DIEValue &AttrInfo,
 
   const uint32_t EntryOffset = LocBuffer.size();
   for (const DebugLocationEntry &Entry : LocList) {
+    if (Entry.IsDefault)
+      continue;
     support::endian::write(LocStream,
                            static_cast<uint8_t>(dwarf::DW_LLE_startx_length),
                            llvm::endianness::little);
@@ -681,6 +685,15 @@ static void writeDWARF5LocList(uint32_t &NumberOfEntries, DIEValue &AttrInfo,
         reinterpret_cast<const char *>(Entry.Expr.data()), Entry.Expr.size());
   };
   for (unsigned I = 0; I < LocList.size();) {
+    const DebugLocationEntry &Entry = LocList[I];
+    if (Entry.IsDefault) {
+      support::endian::write(
+          LocBodyStream, static_cast<uint8_t>(dwarf::DW_LLE_default_location),
+          llvm::endianness::little);
+      writeExpression(I);
+      ++I;
+      continue;
+    }
     if (emitWithBase<DebugLocationsVector, dwarf::LoclistEntries,
                      DebugLocationEntry>(LocBodyStream, LocList, AddrWriter, CU,
                                          I, dwarf::DW_LLE_base_addressx,
@@ -688,7 +701,6 @@ static void writeDWARF5LocList(uint32_t &NumberOfEntries, DIEValue &AttrInfo,
                                          writeExpression))
       continue;
 
-    const DebugLocationEntry &Entry = LocList[I];
     support::endian::write(LocBodyStream,
                            static_cast<uint8_t>(dwarf::DW_LLE_startx_length),
                            llvm::endianness::little);

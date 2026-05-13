@@ -139,7 +139,12 @@ translateInputToOutputLocationList(const BinaryFunction &BF,
   if (!BF.isEmitted())
     return InputLL;
 
+  DebugLocationsVector DefaultEntries;
   for (const DebugLocationEntry &Entry : InputLL) {
+    if (Entry.IsDefault) {
+      DefaultEntries.push_back(Entry);
+      continue;
+    }
     DebugAddressRangesVector OutRanges =
         BF.translateInputToOutputRange({Entry.LowPC, Entry.HighPC});
     if (!OutRanges.empty() && !OutputLL.empty()) {
@@ -175,6 +180,8 @@ translateInputToOutputLocationList(const BinaryFunction &BF,
     PrevHighPC = MergedLL.back().HighPC;
     PrevExpr = &MergedLL.back().Expr;
   }
+
+  llvm::append_range(MergedLL, DefaultEntries);
 
   return MergedLL;
 }
@@ -1087,6 +1094,14 @@ void DWARFRewriter::updateUnitDebugInfo(
                       StartAddress->Address, EndAddress->Address, Entry.Loc});
                   break;
                 }
+                case dwarf::DW_LLE_start_end:
+                  InputLL.emplace_back(DebugLocationEntry{
+                      Entry.Value0, Entry.Value1, Entry.Loc});
+                  break;
+                case dwarf::DW_LLE_default_location:
+                  InputLL.emplace_back(
+                      DebugLocationEntry{0, 0, Entry.Loc, true});
+                  break;
                 }
                 return true;
               });
@@ -1180,9 +1195,10 @@ void DWARFRewriter::updateUnitDebugInfo(
               if (Expr.getDescription().Op.size() > 2)
                 errs() << "BOLT-WARNING: [internal-dwarf-error]: Unsupported "
                           "number of operands.\n";
-              // not addr index, just copy.
               if (!(Expr.getCode() == dwarf::DW_OP_GNU_addr_index ||
-                    Expr.getCode() == dwarf::DW_OP_addrx)) {
+                    Expr.getCode() == dwarf::DW_OP_addrx ||
+                    Expr.getCode() == dwarf::DW_OP_constx ||
+                    Expr.getCode() == dwarf::DW_OP_GNU_const_index)) {
                 auto Itr = AttrLocValList->values().begin();
                 std::advance(Itr, PrevOffset);
                 uint32_t CopyNum = CurEndOffset - PrevOffset;
